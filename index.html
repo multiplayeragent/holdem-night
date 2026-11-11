@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hold'em Night</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #0c0d16; }
+  body { font: 15px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #f6f1e4; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; touch-action: none; }
+  .hud { position: fixed; pointer-events: none; }
+  #top { top: max(8px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); display: flex; align-items: center; gap: 8px; }
+  #info { font-size: 13px; font-weight: 650; opacity: .8; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tb { pointer-events: auto; min-width: 44px; min-height: 44px; border-radius: 12px; border: 1px solid #ffffff26; background: #ffffff12; color: #f6f1e4; font: 700 13px system-ui, sans-serif; cursor: pointer; padding: 0 10px; }
+  #status { left: 0; right: 0; text-align: center; font-weight: 800; font-size: 16px; text-shadow: 0 2px 6px #000; padding: 0 12px; }
+  #net { bottom: max(4px, env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center; font-size: 12px; opacity: .6; }
+  #bar { position: fixed; left: 0; right: 0; bottom: calc(max(6px, env(safe-area-inset-bottom)) + 18px); display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 10px; }
+  #bar[hidden], #over[hidden], #raise[hidden] { display: none; }
+  #raise { display: flex; align-items: center; gap: 6px; width: min(520px, 100%); }
+  #raise .q { min-width: 44px; min-height: 40px; border-radius: 10px; border: 1px solid #ffffff2a; background: #1b2033; color: #f6f1e4; font: 700 12px system-ui, sans-serif; cursor: pointer; padding: 0 6px; }
+  #track { flex: 1; height: 40px; position: relative; touch-action: none; cursor: pointer; }
+  #track::before { content: ""; position: absolute; left: 0; right: 0; top: 17px; height: 6px; border-radius: 3px; background: #ffffff24; }
+  #fill { position: absolute; left: 0; top: 17px; height: 6px; border-radius: 3px; background: #e9b949; }
+  #thumb { position: absolute; top: 6px; width: 28px; height: 28px; margin-left: -14px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff3c8, #e9b949 60%, #a87918); box-shadow: 0 2px 6px #000a; }
+  #btns { display: flex; gap: 8px; width: min(520px, 100%); }
+  #btns button { flex: 1; min-height: 50px; border-radius: 14px; border: 0; font: 800 15px system-ui, sans-serif; cursor: pointer; color: #fff; box-shadow: 0 3px 0 #0006; }
+  #fold { background: #8b3a3a; } #call { background: #2f7d5b; } #raiseBtn { background: #c8932c; color: #231400 !important; }
+  #btns button:active { transform: translateY(2px); box-shadow: none; }
+  #over { position: fixed; inset: 0; display: grid; place-items: center; background: #000a; z-index: 10; }
+  .card { box-sizing: border-box; width: min(380px, calc(100vw - 32px)); max-height: 86vh; overflow: auto; padding: 20px; border-radius: 18px; background: #161a2b; border: 1px solid #e9b94944; text-align: center; }
+  .card h2 { margin: 0; font-size: 26px; } .card p { margin: 6px 0 10px; opacity: .85; }
+  .card h3 { margin: 8px 0 4px; font-size: 13px; color: #e9b949; text-align: left; }
+  .card ol { text-align: left; margin: 0 0 12px; padding-left: 24px; font-size: 14px; min-height: 30px; }
+  .card li span { float: right; }
+  .card button { width: 100%; min-height: 48px; border-radius: 12px; border: 0; font: 800 16px system-ui, sans-serif; cursor: pointer; margin-top: 8px; }
+  #again { background: #e9b949; color: #231400; } #close { background: #ffffff1a; color: #fff; }
+  .small { font-size: 12px; opacity: .6; margin-top: 10px; }
+  .ranks { text-align: left; font-size: 14px; margin: 0 0 8px; padding-left: 22px; }
+  .ranks li { margin: 2px 0; } .ranks li i { opacity: .6; font-style: normal; font-size: 12px; }
+  .hide { display: none !important; }
+</style>
+<script src="https://cdn.multiplayeragent.com/sdk/mp.global.js"></script>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div class="hud" id="top"><span id="info"></span><button class="tb hide" id="buyBtn">Buy back in</button><button class="tb" id="rankBtn">Hands</button><button class="tb" id="lbBtn">🏆</button></div>
+<div class="hud" id="status"></div>
+<div id="bar" hidden>
+  <div id="raise"><button class="q" data-q="min">Min</button><button class="q" data-q="half">½ pot</button><button class="q" data-q="pot">Pot</button><div id="track"><div id="fill"></div><div id="thumb"></div></div><button class="q" data-q="all">All-in</button></div>
+  <div id="btns"><button id="fold">Fold</button><button id="call">Check</button><button id="raiseBtn">Raise</button></div>
+</div>
+<div class="hud" id="net">Connecting…</div>
+<div id="over" hidden><div class="card">
+  <h2 id="overTitle"></h2><p id="overSub"></p>
+  <div id="overBody"></div>
+  <h3 id="boardTitle">Biggest pots won</h3><ol id="board"><li>Loading…</li></ol>
+  <button id="again">Buy back in</button><button id="close">Back to the table</button>
+  <p class="small">Play chips only. No real money, nothing to buy.</p>
+</div></div>
+<script>
+/* ═══ HOLD'EM NIGHT · a Multiplayer Agent starter ═════════════════════════════════════════
+ * Texas hold'em for play chips: two cards each, five on the board, best five-card hand wins.
+ * Turn-based, 2–8 seats; bots fill the empty ones. Play chips only: no real money, no purchases.
+ *
+ * WHERE THINGS ARE (search for the "── " headers):
+ *   CONFIG ........ seats, blinds, buy-in, timers, the bots, the leaderboard
+ *   CONNECTION .... MP_CONNECT, joining, the offline room, who is host
+ *   SEALED HOLES .. the Seal helper: hole cards are encrypted so only their owner can read them
+ *   CARDS ......... the deck, the seeded shuffle, ranking a hand (best 5 of 7)
+ *   BETTING ....... blinds, fold/check/call/raise, ending a street, side pots, the showdown
+ *   BOTS .......... hand strength by quick simulation, plus some bluffing
+ *   TABLE (HOST) .. seats, dealing a hand, bot turns, the turn timer, taking over as a new host.
+ *                   Only the host writes the shared fields.
+ *   MY CARDS ...... reading my sealed hole cards, acting, re-sending them to a new host
+ *   DRAW .......... the felt, seats, cards, chips, flying chips and cards, confetti
+ *   HUD & RESULTS . the action bar and raise slider, status, the bust card, the leaderboard
+ *   MAIN LOOP ..... heartbeat, host tick, drawing
+ *
+ * HOW THE MULTIPLAYER WORKS (a relay room: no server code, the HOST's browser runs the rules):
+ *   - The table lives in shared fields only the HOST writes: `game` (one JSON field: id = hand
+ *     number, v, phase "bet"|"run"|"show", seats [{i id, n name, c color, b bot, st stack,
+ *     bt bet this street, tt put in this hand, h dealt in, f folded, al all-in, ok acted,
+ *     la last action}], btn, street, board, hi, minR, turn, t, turnAt, turnEnds, last,
+ *     shown, res, endsAt) and `hole0`…`hole7` (each human's two cards, SEALED to that
+ *     player's public key, so only they can read them; the host deals, so it can too).
+ *   - The HOST is the lowest sessionId among live players (heartbeat seen in the last 3s).
+ *     It holds the shuffled deck and the bots' cards in its own memory.
+ *   - Each player writes its OWN entity: `n` (name), `c` (color), `pk` (public key), `hb`.
+ *   - Players send intents to the host: "act" {g, t, a: fold|check|call|raise, to} and
+ *     "rebuy" {g}. `t` counts every action, so an old or double intent is ignored.
+ *   - When the host changes mid-hand, every player re-sends its own cards sealed to the new
+ *     host ("myhole" {to, r, box}). The new host rebuilds the deck from the cards nobody
+ *     holds and deals the bots fresh cards (nobody saw theirs anyway).
+ *   - Timers are timestamps: turnEnds (then the host checks or folds for you), endsAt (next hand).
+ *   - ?attract plays offline with bots (your seat on autopilot) for the preview video.
+ *   - Leaderboard "biggest-pot": the biggest pot each player has won.
+ */
+
+// ── CONFIG ──────────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  seats: 6,             // seats at the table, bots fill the empty ones (2 to 8)
+  buyIn: 1000,          // play chips you sit down with (and buy back in with)
+  smallBlind: 10,
+  bigBlind: 20,
+  turnMs: 25000,        // time to act before the host checks (or folds) for you
+  botMs: 1100,          // how long a bot thinks
+  dealMs: 1200,         // the deal animation before the first turn
+  runMs: 1300,          // all-in: pause between each street of the run-out
+  showMs: 6000,         // showdown result shows this long, then the next hand
+  foldWinMs: 2600,      // everyone folded: the next hand comes sooner
+  seatGraceMs: 10000,   // a player silent this long hands its seat to a bot
+  rejoinMs: 3000,       // a new host waits this long for everyone to re-send their cards
+  botTrials: 260,       // simulated deals a bot runs to judge its hand (more = smarter, slower)
+  botBluff: 0.09,       // how often a bot bets or raises with nothing
+  hintMs: 14000,        // the how-to-play hint shows this long
+  board: "biggest-pot", // leaderboard name
+};
+const BOT_NAMES = ["Ace", "Queenie", "Lucky", "Rio", "Dusty", "Vegas", "Mo", "Duchess"];
+// each bot's style: loose = plays more hands, aggr = bets and raises more
+const BOT_STYLE = [{ loose: 0.5, aggr: 0.6 }, { loose: 0.2, aggr: 0.3 }, { loose: 0.8, aggr: 0.4 }, { loose: 0.4, aggr: 0.9 },
+  { loose: 0.3, aggr: 0.2 }, { loose: 0.7, aggr: 0.8 }, { loose: 0.5, aggr: 0.5 }, { loose: 0.2, aggr: 0.7 }];
+const COLORS = ["#ff8a65", "#4fc3f7", "#ffd54f", "#81c784", "#ba68c8", "#f06292", "#4dd0e1", "#aed581", "#ff5f6d", "#9fa8ff"];
+const NAME_A = ["Happy", "Sneaky", "Lucky", "Quick", "Jolly", "Clever", "Cool"], NAME_B = ["Otter", "Panda", "Fox", "Koala", "Badger", "Moose", "Shark"];
+
+// ── CONNECTION ──────────────────────────────────────────────────────────────────────
+// The builder fills these in for this game. Downloaded from GitHub? Put your own pk_ key here.
+const MP_CONNECT = {
+  key: 'pk_REPLACE_ME',
+  room: 'holdem-night',
+  endpoint: 'wss://live.multiplayeragent.com',
+  apiUrl: 'https://api.multiplayeragent.com',
+};
+const ATTRACT = new URLSearchParams(location.search).has("attract");
+
+/** Same shape as the SDK client, kept in this tab: offline play and ?attract. */
+function localRoom() {
+  const id = "local", state = { entities: { players: { [id]: {} } }, shared: {} }, subs = [];
+  let queued = false;
+  const emit = () => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; subs.forEach((f) => f(state)); }); } };
+  const put = (o, k, v) => { if (typeof k === "object") Object.assign(o, k); else o[k] = v; emit(); };
+  return {
+    sessionId: id, state, offline: true,
+    me: { set: (k, v) => put(state.entities.players[id], k, v) },
+    setShared: (k, v) => put(state.shared, k, v),
+    onState: (f) => { subs.push(f); f(state); }, onJoin() {}, onLeave() {}, on() {}, send() {},
+    onDisconnect() {}, onReconnect() {}, leave: async () => {},
+  };
+}
+async function connect() {
+  if (ATTRACT || typeof MP === "undefined") return localRoom();
+  try {
+    const mp = await Promise.race([MP.join({ ...MP_CONNECT }), new Promise((_, no) => setTimeout(() => no(new Error("timed out")), 10000))]);
+    window.mp = mp; // the builder calls window.mp.leave() when the page closes
+    return mp;
+  } catch (e) {
+    console.warn("Playing offline:", e && e.message);
+    return localRoom();
+  }
+}
+const parse = (v, fb) => { if (typeof v !== "string") return fb; try { return JSON.parse(v); } catch { return fb; } };
+let net = null, S = { entities: { players: {} }, shared: {} };
+const seenHb = new Map(); // sessionId -> { hb, at } on OUR clock
+/** Players whose heartbeat moved in the last 3s (plus us), sorted by sessionId. */
+function livePlayers() {
+  const now = performance.now(), out = [];
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    const s = seenHb.get(id);
+    if (!s || s.hb !== p.hb) seenHb.set(id, { hb: p.hb, at: now });
+    if (id === net.sessionId || now - seenHb.get(id).at < 3000) out.push(id);
+  }
+  return out.sort();
+}
+let hostHold = 0, lastTick = performance.now(); // lastTick: when frame() last ran; hostHold: after a freeze, no hosting before this time (see frame())
+const isHost = () => performance.now() > hostHold && performance.now() - lastTick < 1000 && livePlayers()[0] === net.sessionId; // a tab whose loop has stopped doesn't host
+/** Still in the room and heard from within the seat grace time (a backgrounded phone keeps its seat). */
+const stillHere = (id) => id === net.sessionId || (!!S.entities.players[id] && performance.now() - (seenHb.get(id)?.at ?? -1e9) < CONFIG.seatGraceMs);
+
+// ── SEALED HOLES ────────────────────────────────────────────────────────────────────
+// Everything in room state reaches every client, so hole cards are written SEALED: encrypted
+// so only their one reader can open them. Each player publishes a public key in its own entity
+// (`pk`); the host seals each player's two cards to that key and writes the box into shared.
+//   - The host deals, so the host can read every hand. Fine for friends, not cheat-proof.
+//   - A new host can't open boxes the old host sealed, so every player re-sends its own cards
+//     to the new host (sealed, with mp.send), and the new host rebuilds the deck from those.
+//   - crypto.subtle needs https or localhost. Offline you are the host and there is nobody to
+//     hide from, so seal()/open() pass the value through.
+const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const Seal = {
+  pair: null,
+  pub: "",
+  keys: new Map(), // other player's public key -> derived AES key
+  get on() { return !!(window.crypto && crypto.subtle); },
+  /** Make this player's key pair. Returns the public key to publish: me.set("pk", pub). */
+  async init() {
+    if (!this.on) return "";
+    this.pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveKey"]);
+    this.pub = b64(await crypto.subtle.exportKey("raw", this.pair.publicKey));
+    return this.pub;
+  },
+  async key(otherPub) {
+    let k = this.keys.get(otherPub);
+    if (!k) {
+      const theirs = await crypto.subtle.importKey("raw", unb64(otherPub), { name: "ECDH", namedCurve: "P-256" }, false, []);
+      k = await crypto.subtle.deriveKey({ name: "ECDH", public: theirs }, this.pair.privateKey, { name: "AES-GCM", length: 128 }, false, ["encrypt", "decrypt"]);
+      this.keys.set(otherPub, k);
+    }
+    return k;
+  },
+  /** Seal any JSON value so only the holder of `toPub` (and you) can open it. */
+  async seal(toPub, value) {
+    if (!this.on) return "p:" + JSON.stringify(value);
+    if (!toPub || !this.pair) return ""; // never plaintext online: nobody can open an empty box
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await this.key(toPub), new TextEncoder().encode(JSON.stringify(value)));
+    return b64(iv) + "." + b64(ct);
+  },
+  /** Open a box sealed by the player whose public key is `fromPub`. Null if it isn't for you. */
+  async open(fromPub, box) {
+    if (typeof box !== "string") return null;
+    if (box.startsWith("p:")) return JSON.parse(box.slice(2));
+    if (!this.on || !fromPub || !this.pair) return null;
+    try {
+      const [iv, ct] = box.split(".").map(unb64);
+      const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, await this.key(fromPub), ct);
+      return JSON.parse(new TextDecoder().decode(pt));
+    } catch { return null; }
+  },
+};
+
+// ── CARDS ───────────────────────────────────────────────────────────────────────────
+// A card is two letters: rank (2-9, T, J, Q, K, A) and suit (s ♠, h ♥, d ♦, c ♣). "As", "Td", "7h".
+const RANKS = "23456789TJQKA", SUITS = "shdc", SUIT_SYM = { s: "♠", h: "♥", d: "♦", c: "♣" };
+const RANK_SHOW = { T: "10" }, RANK_WORD = ["Twos", "Threes", "Fours", "Fives", "Sixes", "Sevens", "Eights", "Nines", "Tens", "Jacks", "Queens", "Kings", "Aces"];
+const HAND_NAMES = ["High card", "Pair", "Two pair", "Three of a kind", "Straight", "Flush", "Full house", "Four of a kind", "Straight flush"];
+const fullDeck = () => [...RANKS].flatMap((r) => [...SUITS].map((s) => r + s));
+const rankOf = (c) => RANKS.indexOf(c[0]) + 2; // 2..14
+/** mulberry32: a small seeded random number generator (same seed, same numbers). */
+function mulberry32(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function shuffle(a, rnd = Math.random) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+/** A fresh deck shuffled from a random seed (the seed and the deck stay in the host's memory). */
+function shuffledDeck() { const seed = crypto.getRandomValues ? crypto.getRandomValues(new Uint32Array(1))[0] : Math.floor(Math.random() * 2 ** 32); return shuffle(fullDeck(), mulberry32(seed)); }
+/** The highest straight in a set of ranks (5 = the A-2-3-4-5 wheel), or 0. */
+function straightHigh(rset) {
+  for (let h = 14; h >= 5; h--) {
+    let ok = true;
+    for (let k = 0; k < 5 && ok; k++) { const r = h - k; ok = rset.has(r === 1 ? 14 : r); }
+    if (ok) return h;
+  }
+  return 0;
+}
+/** Rank the best five-card hand in 2–7 cards: { s: score (higher wins), cat: 0–8, best: [cards], name }. */
+function evalHand(cards) {
+  const bySuit = {}, byRank = {};
+  for (const c of cards) { (bySuit[c[1]] ||= []).push(c); (byRank[rankOf(c)] ||= []).push(c); }
+  const desc = (list) => list.slice().sort((a, b) => rankOf(b) - rankOf(a));
+  const take = (ranks, pool) => { const out = [], left = pool.slice(); for (const r of ranks) { const i = left.findIndex((c) => rankOf(c) === (r === 1 ? 14 : r)); if (i >= 0) out.push(left.splice(i, 1)[0]); } return out; };
+  const result = (cat, kick, best) => ({ cat, s: kick.reduce((a, k, i) => a + k * 15 ** (4 - i), cat * 15 ** 5), best });
+  const flushSuit = Object.keys(bySuit).find((s) => bySuit[s].length >= 5);
+  if (flushSuit) {
+    const fl = bySuit[flushSuit], h = straightHigh(new Set(fl.map(rankOf)));
+    if (h) return named(result(8, [h], take([h, h - 1, h - 2, h - 3, h - 4], fl)));
+  }
+  const groups = Object.entries(byRank).map(([r, list]) => ({ r: +r, n: list.length })).sort((a, b) => b.n - a.n || b.r - a.r);
+  const kickers = (skip, k) => desc(cards).filter((c) => !skip.includes(rankOf(c))).slice(0, k);
+  const g0 = groups[0], g1 = groups[1];
+  if (g0.n === 4) { const kk = kickers([g0.r], 1); return named(result(7, [g0.r, ...kk.map(rankOf)], [...byRank[g0.r], ...kk])); }
+  if (g0.n === 3 && g1 && g1.n >= 2) return named(result(6, [g0.r, g1.r], [...byRank[g0.r], ...byRank[g1.r].slice(0, 2)]));
+  if (flushSuit) { const top = desc(bySuit[flushSuit]).slice(0, 5); return named(result(5, top.map(rankOf), top)); }
+  const sh = straightHigh(new Set(cards.map(rankOf)));
+  if (sh) return named(result(4, [sh], take([sh, sh - 1, sh - 2, sh - 3, sh - 4], cards)));
+  if (g0.n === 3) { const kk = kickers([g0.r], 2); return named(result(3, [g0.r, ...kk.map(rankOf)], [...byRank[g0.r], ...kk])); }
+  if (g0.n === 2 && g1 && g1.n === 2) { const kk = kickers([g0.r, g1.r], 1); return named(result(2, [g0.r, g1.r, ...kk.map(rankOf)], [...byRank[g0.r], ...byRank[g1.r], ...kk])); }
+  if (g0.n === 2) { const kk = kickers([g0.r], 3); return named(result(1, [g0.r, ...kk.map(rankOf)], [...byRank[g0.r], ...kk])); }
+  const top = desc(cards).slice(0, 5);
+  return named(result(0, top.map(rankOf), top));
+}
+/** Add a readable name: "Pair of Nines", "Full house", "Ace high". */
+function named(h) {
+  const r = rankOf(h.best[0]) - 2;
+  h.name = h.cat === 8 && rankOf(h.best[0]) === 14 ? "Royal flush" : h.cat === 1 ? "Pair of " + RANK_WORD[r] : h.cat === 3 ? "Three " + RANK_WORD[r]
+    : h.cat === 7 ? "Four " + RANK_WORD[r] : h.cat === 0 ? (RANK_SHOW[h.best[0][0]] || h.best[0][0]).replace(/^A$/, "Ace").replace(/^K$/, "King").replace(/^Q$/, "Queen").replace(/^J$/, "Jack") + " high" : HAND_NAMES[h.cat];
+  return h;
+}
+
+// ── BETTING ─────────────────────────────────────────────────────────────────────────
+// Pure rules on a copy of the game. Every function returns the new game for the host to write.
+const inHand = (s) => !!s.h && !s.f;      // dealt in and not folded
+const canBet = (s) => inHand(s) && !s.al;  // still has chips to bet
+const potOf = (g) => g.seats.reduce((a, s) => a + s.tt, 0); // everything put in this hand
+const copyGame = (g) => ({ ...g, seats: g.seats.map((s) => ({ ...s })), board: g.board.slice() });
+/** The next seat after `from` (clockwise) that passes `test`, or -1. */
+function nextSeat(g, from, test) { const n = g.seats.length; for (let k = 1; k <= n; k++) { const i = (from + k) % n; if (test(g.seats[i], i)) return i; } return -1; }
+/** Move chips from a stack into its bet (never more than the stack: that's all-in). */
+function putIn(s, amt) { amt = Math.max(0, Math.min(amt, s.st)); s.st -= amt; s.bt += amt; s.tt += amt; if (s.st === 0 && s.h) s.al = 1; return amt; }
+const timers = (g, i) => { const t = Date.now(); g.turn = i; g.turnAt = t; g.turnEnds = t + CONFIG.turnMs; return g; };
+
+/** Fold / check / call / raise (to = the total bet this street). Null if it isn't allowed. */
+function applyAction(g0, i, a, to) {
+  const g = copyGame(g0), s = g.seats[i], owe = g.hi - s.bt;
+  if (a === "check" && owe > 0) return null;
+  if (a === "call" && owe <= 0) a = "check";
+  if (a === "fold") { s.f = 1; s.la = "Fold"; }
+  else if (a === "check") s.la = "Check";
+  else if (a === "call") { putIn(s, owe); s.la = s.al ? "All-in" : "Call"; }
+  else if (a === "raise") {
+    const most = s.bt + s.st, least = Math.min(most, Math.max(g.hi + g.minR, CONFIG.bigBlind));
+    to = Math.max(least, Math.min(most, Math.round(Number(to) || 0)));
+    if (to <= g.hi) { putIn(s, owe); s.la = s.al ? "All-in" : "Call"; a = "call"; }
+    else {
+      if (to - g.hi >= g.minR) g.minR = to - g.hi; // a full raise sets the next minimum raise
+      const opening = g.hi === 0;
+      g.hi = to; putIn(s, to - s.bt);
+      s.la = s.al ? "All-in" : opening ? "Bet " + to : "Raise " + to;
+      for (const o of g.seats) if (o !== s) o.ok = 0; // everyone gets to answer the raise
+    }
+  } else return null;
+  s.ok = 1;
+  g.t++; g.last = { s: i, a, amt: s.bt };
+  return advance(g, i);
+}
+/** After an action: next player, next street, the run-out, or the end of the hand. */
+function advance(g, from) {
+  const alive = g.seats.map((s, i) => (inHand(s) ? i : -1)).filter((i) => i >= 0);
+  if (alive.length === 1) return winByFolds(g, alive[0]);
+  const nxt = nextSeat(g, from, (s) => canBet(s) && (!s.ok || s.bt < g.hi));
+  if (nxt >= 0) return timers(g, nxt);
+  // the street is over: bets go to the pot
+  for (const s of g.seats) { s.bt = 0; s.ok = 0; if (inHand(s) && !s.al) s.la = ""; }
+  g.hi = 0; g.minR = CONFIG.bigBlind;
+  if (g.street === 3) return showdown(g);
+  if (g.seats.filter(canBet).length <= 1) { // everyone (or all but one) is all-in: show the cards and run out the board
+    g.phase = "run"; g.turn = -1; g.nextAt = Date.now() + CONFIG.runMs;
+    g.shown = Object.fromEntries(alive.map((i) => [i, host.holes[i]]));
+    return g;
+  }
+  dealStreet(g);
+  return timers(g, nextSeat(g, g.btn, canBet));
+}
+/** Flop (3 cards), turn (1) or river (1), from the host's deck. */
+function dealStreet(g) { g.street++; const k = g.street === 1 ? 3 : 1; for (let n = 0; n < k; n++) g.board.push(host.deck.pop()); }
+/** Everyone else folded: the last player takes the whole pot without showing. */
+function winByFolds(g, i) {
+  const pot = potOf(g);
+  g.seats[i].st += pot;
+  for (const s of g.seats) s.bt = 0;
+  return Object.assign(g, { phase: "show", turn: -1, res: { p: [{ a: pot, w: [i] }], fold: 1 }, endsAt: Date.now() + CONFIG.foldWinMs });
+}
+/** Main pot and side pots: one level per all-in amount; each pot goes to the best hand that paid into it. */
+function pots(g) {
+  const alive = g.seats.map((s, i) => (inHand(s) ? i : -1)).filter((i) => i >= 0);
+  const levels = [...new Set(alive.map((i) => g.seats[i].tt))].sort((a, b) => a - b), out = [];
+  let prev = 0;
+  levels.forEach((lv, k) => {
+    const top = k === levels.length - 1 ? Infinity : lv; // the top pot also takes any folded chips above it
+    const a = g.seats.reduce((sum, s) => sum + Math.min(s.tt, top) - Math.min(s.tt, prev), 0);
+    if (a > 0) out.push({ a, e: alive.filter((i) => g.seats[i].tt >= lv) });
+    prev = lv;
+  });
+  return out;
+}
+/** Showdown: rank every hand still in, pay each pot (split ties; odd chips to the first seat after the button). */
+function showdown(g) {
+  const alive = g.seats.map((s, i) => (inHand(s) ? i : -1)).filter((i) => i >= 0);
+  const hands = {}, names = {};
+  for (const i of alive) { const h = evalHand([...host.holes[i], ...g.board]); hands[i] = h; names[i] = h.name; }
+  const paid = pots(g).map((p) => {
+    const best = Math.max(...p.e.map((i) => hands[i].s)), w = p.e.filter((i) => hands[i].s === best);
+    const share = Math.floor(p.a / w.length);
+    w.forEach((i) => { g.seats[i].st += share; });
+    g.seats[nextSeat(g, g.btn, (s, i) => w.includes(i))].st += p.a - share * w.length;
+    return { a: p.a, w };
+  });
+  const top = paid[0].w[0];
+  return Object.assign(g, { phase: "show", turn: -1, shown: Object.fromEntries(alive.map((i) => [i, host.holes[i]])),
+    res: { p: paid, h: names, best: hands[top].best }, endsAt: Date.now() + CONFIG.showMs });
+}
+
+// ── BOTS ────────────────────────────────────────────────────────────────────────────
+/** My chance of winning against `opp` random hands, by dealing the rest of the hand out many times. */
+function equity(hole, board, opp, trials) {
+  const used = new Set([...hole, ...board]), rest = fullDeck().filter((c) => !used.has(c));
+  const need = 5 - board.length + 2 * opp;
+  let won = 0;
+  for (let t = 0; t < trials; t++) {
+    for (let k = 0; k < need; k++) { const j = k + Math.floor(Math.random() * (rest.length - k)); [rest[k], rest[j]] = [rest[j], rest[k]]; }
+    const full = board.concat(rest.slice(0, 5 - board.length)), mine = evalHand(hole.concat(full)).s;
+    let best = 0;
+    for (let o = 0; o < opp; o++) best = Math.max(best, evalHand(rest.slice(5 - board.length + o * 2, 7 - board.length + o * 2).concat(full)).s);
+    won += mine > best ? 1 : mine === best ? 0.5 : 0;
+  }
+  return won / trials;
+}
+/** What a bot does now. It judges its hand, weighs the price, and sometimes bluffs. */
+function botAction(g, i) {
+  const s = g.seats[i], style = BOT_STYLE[Math.max(0, BOT_NAMES.indexOf(s.n)) % BOT_STYLE.length] || BOT_STYLE[0];
+  const opp = g.seats.filter(inHand).length - 1, eq = equity(host.holes[i], g.board, Math.max(1, opp), CONFIG.botTrials);
+  const rel = eq * (opp + 1); // 1 = an average hand at this table, 2 = twice as likely to win as average
+  const pot = potOf(g), owe = g.hi - s.bt, r = Math.random(), BB = CONFIG.bigBlind;
+  const raiseTo = (frac) => g.hi + Math.max(g.minR, Math.round(((pot + owe) * frac) / BB) * BB);
+  const shortStack = s.st <= BB * 6;
+  if (owe <= 0) { // nobody has bet: bet a good hand, sometimes bluff, otherwise check
+    if (rel > 1.5 - style.aggr * 0.4 && r < 0.55 + style.aggr * 0.35) return { a: "raise", to: raiseTo(0.45 + r * 0.5) };
+    if (r < CONFIG.botBluff * (0.5 + style.aggr)) return { a: "raise", to: raiseTo(0.5) };
+    return { a: "check" };
+  }
+  const price = owe / (pot + owe); // the share of the final pot this call costs
+  if (rel > 2.1 - style.aggr * 0.5 && r < 0.4 + style.aggr * 0.4) return { a: "raise", to: shortStack || eq > 0.8 ? s.bt + s.st : raiseTo(0.6 + r * 0.6) };
+  const cheap = g.street === 0 && owe <= BB * (2 + style.loose * 3);
+  if (eq > price * (1.1 - style.loose * 0.4) || (cheap && rel > 0.85 - style.loose * 0.45)) return { a: "call" };
+  if (r < CONFIG.botBluff * 0.5 * (0.5 + style.aggr) && owe < pot * 0.7) return { a: "raise", to: raiseTo(0.9) };
+  return { a: "fold" };
+}
+
+// ── TABLE (HOST) ────────────────────────────────────────────────────────────────────
+// The host's private memory: the deck, every seat's hole cards (bots' too) and queued intents.
+const host = { last: null, ready: false, since: 0, busy: false, deck: [], holes: [], inbox: [], known: new Map() };
+const gameMemo = { raw: undefined, g: null };
+/** The game as state has it, or the host's own newer write that hasn't come back yet. */
+function game() {
+  if (gameMemo.raw !== S.shared.game) { gameMemo.raw = S.shared.game; gameMemo.g = parse(S.shared.game, null); }
+  const g = gameMemo.g;
+  return host.last && isHost() && (!g || host.last.v > g.v) ? host.last : g;
+}
+function writeGame(g) { g = { ...g, v: (game()?.v ?? 0) + 1 }; host.last = g; net.setShared("game", JSON.stringify(g)); return g; }
+const seatOf = (g, id) => (g ? g.seats.findIndex((s) => s.i === id) : -1);
+const canSit = (id) => net.offline || !Seal.on || (id === net.sessionId ? !!Seal.pub : !!S.entities.players[id]?.pk);
+const playerName = (id) => String(id === net.sessionId ? myName : S.entities.players[id]?.n || "Player").slice(0, 14);
+const playerColor = (id) => (id === net.sessionId ? myColor : S.entities.players[id]?.c || "#ccc");
+const isBotSeat = (s) => s.b || (ATTRACT && s.i === net.sessionId); // ?attract: my seat plays itself
+
+/** Seal one human's hole cards to them and write `hole<i>`. Never writes cards in the clear online. */
+async function sealHole(g, i) {
+  const s = g.seats[i];
+  if (!s || s.b || !host.holes[i]) return;
+  const pk = s.i === net.sessionId ? Seal.pub : S.entities.players[s.i]?.pk;
+  if (!pk && Seal.on && !net.offline) return;
+  net.setShared("hole" + i, JSON.stringify({ id: s.i, r: g.id, by: Seal.pub, box: await Seal.seal(pk, host.holes[i]) }));
+}
+/** Write a result: the changed hole cards first, then the game. */
+async function commit(g, sealSeats = []) {
+  for (const i of new Set(sealSeats)) await sealHole(g, i);
+  return writeGame(g);
+}
+const newBot = (seats, k) => {
+  const usedN = new Set(seats.map((s) => s && s.n)), usedC = new Set(seats.map((s) => s && s.c));
+  const n = BOT_NAMES.find((x) => !usedN.has(x)) || "Bot " + k, c = COLORS.find((x) => !usedC.has(x)) || COLORS[k % COLORS.length];
+  return { i: "bot" + k + "-" + Math.floor(Math.random() * 1e4), n, c, b: 1, st: CONFIG.buyIn };
+};
+/** Gone players hand their seat to a bot; waiting players take a bot's seat; busted bots buy back in. */
+function seatPlayers(prev) {
+  const seats = prev ? prev.seats.map((s) => ({ ...s })) : [];
+  const want = Math.max(2, Math.min(8, CONFIG.seats));
+  const humans = ATTRACT ? [net.sessionId] : livePlayers().filter(canSit);
+  seats.forEach((s, k) => { if (!s.b && !stillHere(s.i)) seats[k] = newBot(seats, k); });
+  const waiting = humans.filter((id) => !seats.some((s) => s.i === id));
+  for (let k = 0; k < seats.length && waiting.length; k++) if (seats[k].b) { const id = waiting.shift(); seats[k] = { i: id, n: playerName(id), c: playerColor(id), st: CONFIG.buyIn }; }
+  while (seats.length < want) { const id = waiting.shift(); seats.push(id ? { i: id, n: playerName(id), c: playerColor(id), st: CONFIG.buyIn } : newBot(seats, seats.length)); }
+  for (const s of seats) {
+    if (!s.b) { s.n = playerName(s.i); s.c = playerColor(s.i); }
+    if (isBotSeat(s) && s.st <= 0) s.st = CONFIG.buyIn; // bots always buy back in
+    if (!s.b && s.st <= 0 && s.rb) s.st = CONFIG.buyIn;
+    delete s.rb;
+  }
+  if (seats.filter((s) => s.st > 0).length < 2) for (const s of seats) if (s.st <= 0) s.st = CONFIG.buyIn; // never stall with one player
+  return seats;
+}
+/** A new hand: seats, the button moves, a fresh shuffled deck, two cards each, the blinds. */
+function newHand(prev) {
+  const seats = seatPlayers(prev).map((s) => ({ ...s, h: s.st > 0 ? 1 : 0, f: 0, al: 0, bt: 0, tt: 0, ok: 0, la: "" }));
+  const g = { id: (prev?.id ?? 0) + 1, phase: "bet", host: net.sessionId, seats, btn: 0, street: 0, board: [], hi: 0, minR: CONFIG.bigBlind,
+    turn: -1, t: 0, turnAt: 0, turnEnds: 0, last: null, shown: {}, res: null, endsAt: 0, nextAt: 0 };
+  g.btn = nextSeat(g, prev ? prev.btn : Math.floor(Math.random() * seats.length), (s) => s.h);
+  host.deck = shuffledDeck();
+  host.holes = seats.map((s) => (s.h ? [host.deck.pop(), host.deck.pop()] : null));
+  host.ready = true;
+  const dealt = seats.filter((s) => s.h).length;
+  const sb = dealt === 2 ? g.btn : nextSeat(g, g.btn, (s) => s.h), bb = nextSeat(g, sb, (s) => s.h); // heads-up: the button posts the small blind
+  putIn(seats[sb], CONFIG.smallBlind); seats[sb].la = "Small blind";
+  putIn(seats[bb], CONFIG.bigBlind); seats[bb].la = "Big blind";
+  g.hi = Math.max(seats[sb].bt, seats[bb].bt);
+  const out = advance(g, bb);
+  if (out.phase === "bet") { out.turnAt = Date.now() + CONFIG.dealMs; out.turnEnds = out.turnAt + CONFIG.turnMs; }
+  if (out.phase === "run") out.nextAt = Date.now() + CONFIG.dealMs + CONFIG.runMs;
+  return commit(out, seats.map((s, i) => (s.b ? -1 : i)).filter((i) => i >= 0));
+}
+/** All-in run-out: the next street (or the showdown) every CONFIG.runMs. */
+function runOut(g) {
+  const out = copyGame(g);
+  if (out.board.length >= 5) { out.street = 3; return writeGame(showdown(out)); }
+  dealStreet(out); out.nextAt = Date.now() + CONFIG.runMs;
+  return writeGame(out);
+}
+/** An intent from a player (or the host's own action). Only the seat whose turn it is, on this exact `t`. */
+function handle({ type, from, data: d }) {
+  const g = game();
+  if (!g || !d || d.g !== g.id) return;
+  const i = seatOf(g, from);
+  if (i < 0) return;
+  if (type === "rebuy") { const s = g.seats[i]; if (s.st <= 0 && (g.phase === "show" || !s.h)) { const out = copyGame(g); out.seats[i].st = CONFIG.buyIn; out.seats[i].rb = 1; return writeGame(out); } return; }
+  if (type !== "act" || g.phase !== "bet" || g.turn !== i || d.t !== g.t) return;
+  const out = applyAction(g, i, String(d.a), d.to);
+  if (out) return writeGame(out);
+}
+/** Just became host: keep my own memory if I dealt this hand, else collect everyone's re-sent cards and rebuild the deck. */
+function adoptTable(g, now) {
+  if (!g || g.phase === "show" || (g.host === net.sessionId && host.holes.length === g.seats.length)) { host.ready = true; return; }
+  const mine = seatOf(g, net.sessionId);
+  if (mine >= 0 && myHole.r === g.id && myHole.cards.length === 2) host.known.set(mine, myHole.cards.slice());
+  const missing = g.seats.some((s, i) => !s.b && s.h && !s.f && stillHere(s.i) && !host.known.has(i) && !g.shown?.[i]);
+  if (g.phase === "bet" && missing && now - host.since < CONFIG.rejoinMs) return;
+  const held = g.seats.map((s, i) => (s.h ? g.shown?.[i] || host.known.get(i) || null : null));
+  const used = new Set([...g.board, ...held.filter(Boolean).flat()]);
+  host.deck = shuffle(fullDeck().filter((c) => !used.has(c)), mulberry32(crypto.getRandomValues(new Uint32Array(1))[0]));
+  host.holes = held.map((h, i) => h || (g.seats[i].h ? [host.deck.pop(), host.deck.pop()] : null)); // bots (and anyone silent) get fresh cards
+  host.ready = true; host.known.clear(); host.busy = true;
+  const resealed = g.seats.map((s, i) => (!s.b && s.h && !held[i] ? i : -1)).filter((i) => i >= 0);
+  commit({ ...g, host: net.sessionId, turnAt: g.phase === "bet" ? Date.now() : g.turnAt, turnEnds: g.phase === "bet" ? Math.max(g.turnEnds, Date.now() + 5000) : g.turnEnds }, resealed).finally(() => { host.busy = false; });
+}
+function hostTick(now) {
+  if (!host.since) host.since = now;
+  if (host.busy) return;
+  const g = game(), t = Date.now();
+  if (!host.ready) return adoptTable(g, now);
+  const run = (p) => { if (!p) return; host.busy = true; Promise.resolve(p).catch((e) => console.warn(e)).finally(() => { host.busy = false; }); };
+  if (host.inbox.length) return run(handle(host.inbox.shift()));
+  if (!g) return run(newHand(null));
+  if (g.phase === "show") { if (t > g.endsAt) run(newHand(g)); return; }
+  if (g.phase === "run") { if (t > g.nextAt) runOut(g); return; }
+  const s = g.seats[g.turn];
+  if (!s) return;
+  const gone = !s.b && !stillHere(s.i);
+  if ((isBotSeat(s) && t > g.turnAt + CONFIG.botMs) || (gone && t > g.turnAt + 600)) { const m = gone ? { a: "fold" } : botAction(g, g.turn); writeGame(applyAction(g, g.turn, m.a, m.to) || applyAction(g, g.turn, "fold")); }
+  else if (t > g.turnEnds) writeGame(applyAction(g, g.turn, "check") || applyAction(g, g.turn, "fold"));
+}
+function stopHosting() { if (!host.since) return; Object.assign(host, { ready: false, since: 0, busy: false, last: null, inbox: [] }); host.known.clear(); }
+
+// ── MY CARDS ────────────────────────────────────────────────────────────────────────
+const myHole = { key: "", r: -1, cards: [] };
+/** My two cards: the host reads its own memory; everyone else opens their sealed box. */
+function readMyHole(g) {
+  const i = seatOf(g, net.sessionId);
+  if (isHost() && host.ready && i >= 0 && host.holes[i]) { myHole.r = g.id; myHole.cards = host.holes[i]; myHole.key = ""; return; }
+  const raw = i >= 0 ? S.shared["hole" + i] : "", key = g.id + "|" + i + "|" + raw;
+  if (key === myHole.key) return;
+  myHole.key = key;
+  const h = parse(raw, null);
+  if (!h || h.id !== net.sessionId || h.r !== g.id) { if (myHole.r !== g.id || i < 0) { myHole.cards = []; myHole.r = -1; } return; }
+  Seal.open(h.by, h.box).then((cards) => { if (myHole.key === key && Array.isArray(cards)) { myHole.cards = cards; myHole.r = g.id; } });
+}
+/** A new host hasn't taken the table yet: send it my cards, sealed so only it can read them. */
+let lastResend = 0;
+function resendHole(g, now) {
+  const hostId = livePlayers()[0], pk = S.entities.players[hostId]?.pk;
+  if (hostId === net.sessionId || g.phase === "show" || g.host === hostId || myHole.r !== g.id || seatOf(g, net.sessionId) < 0 || !pk || now - lastResend < 1500) return;
+  lastResend = now;
+  Seal.seal(pk, myHole.cards).then((box) => net.send("myhole", { to: hostId, r: g.id, box }));
+}
+let waitT = "", waitAt = 0, hintUntil = performance.now() + CONFIG.hintMs;
+const mySeat = (g) => seatOf(g, net.sessionId);
+const myTurn = (g) => g.phase === "bet" && g.turn === mySeat(g) && performance.now() > view.dealAt + 900 && !(waitT === g.id + ":" + g.t && performance.now() - waitAt < 3000);
+/** Send an intent to the host (the host queues its own). */
+function act(type, data) {
+  const g = game();
+  if (!g) return;
+  const msg = { g: g.id, t: g.t, ...data };
+  waitT = g.id + ":" + g.t; waitAt = performance.now(); hintUntil = 0;
+  if (isHost()) host.inbox.push({ type, from: net.sessionId, data: msg }); else net.send(type, msg);
+}
+
+// ── DRAW ────────────────────────────────────────────────────────────────────────────
+const cv = document.getElementById("game"), ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+const L = { cx: 0, cy: 0, rx: 0, ry: 0, cw: 40, av: 20, portrait: false }; // table centre and radii, board card width, avatar radius
+function fit() {
+  DPR = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * DPR; cv.height = H * DPR;
+  L.portrait = H > W * 1.15;
+  const top = ATTRACT ? 14 : 56, bottom = ATTRACT ? 14 : (L.portrait ? 178 : 158);
+  L.av = Math.max(15, Math.min(26, Math.min(W, H) * 0.04));
+  L.cx = W / 2; L.cy = top + (H - top - bottom) / 2;
+  L.rx = Math.max(100, W / 2 - L.av * 2.6); L.ry = Math.max(90, (H - top - bottom) / 2 - L.av * 1.9);
+  if (!L.portrait) L.rx = Math.min(L.rx, L.ry * 2.3);
+  L.cw = Math.max(30, Math.min(62, (L.portrait ? L.rx * 2 : L.ry * 2.4) / 6.3));
+  document.getElementById("status").style.bottom = "calc(max(6px, env(safe-area-inset-bottom)) + 126px)"; // just above the action bar
+}
+addEventListener("resize", fit); addEventListener("orientationchange", fit); fit();
+/** Where seat k sits on the rail. My seat is always at the bottom. */
+function seatXY(g, k) {
+  const n = g.seats.length, me = Math.max(0, mySeat(g)), a = Math.PI / 2 + ((k - me + n) % n) * (Math.PI * 2 / n);
+  const c = Math.cos(a), s = Math.sin(a), p = 2 / 3; // a rounded-rectangle-ish oval (superellipse), like a real table
+  return [L.cx + L.rx * Math.sign(c) * Math.abs(c) ** p, L.cy + L.ry * Math.sign(s) * Math.abs(s) ** p];
+}
+const toward = (x, y, k) => [x + (L.cx - x) * k, y + (L.cy - y) * k];
+const ease = (t) => 1 - (1 - Math.max(0, Math.min(1, t))) ** 3;
+
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+/** One card at (x, y) = its centre. flip (0..1) squashes it for the turn-over animation. */
+function drawCard(x, y, w, card, opt = {}) {
+  const h = w * 1.4, sq = opt.flip === undefined ? 1 : Math.abs(Math.cos(opt.flip * Math.PI)), up = card && (opt.flip === undefined || opt.flip >= 0.5);
+  ctx.save(); ctx.translate(x, y); ctx.rotate(opt.rot || 0); ctx.scale(Math.max(0.02, sq), 1);
+  ctx.shadowColor = "#0008"; ctx.shadowBlur = w * 0.15; ctx.shadowOffsetY = w * 0.05;
+  if (opt.glow) { ctx.shadowColor = "#ffe08a"; ctx.shadowBlur = w * 0.45; ctx.shadowOffsetY = 0; }
+  rr(-w / 2, -h / 2, w, h, w * 0.1);
+  if (up) {
+    ctx.fillStyle = "#fbf8f0"; ctx.fill(); ctx.shadowColor = "transparent";
+    const red = card[1] === "h" || card[1] === "d", col = red ? "#d23a3a" : "#1d2130", rk = RANK_SHOW[card[0]] || card[0];
+    ctx.fillStyle = col; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = `800 ${w * 0.36}px system-ui, sans-serif`; ctx.fillText(rk, -w * 0.24 + (rk.length > 1 ? w * 0.04 : 0), -h * 0.3);
+    ctx.font = `${w * 0.3}px system-ui, sans-serif`; ctx.fillText(SUIT_SYM[card[1]], -w * 0.24, -h * 0.08);
+    ctx.font = `${w * 0.62}px system-ui, sans-serif`; ctx.fillText(SUIT_SYM[card[1]], w * 0.1, h * 0.2);
+    if (opt.dim) { rr(-w / 2, -h / 2, w, h, w * 0.1); ctx.fillStyle = "#0b0d1888"; ctx.fill(); }
+  } else {
+    ctx.fillStyle = "#8c1d2c"; ctx.fill(); ctx.shadowColor = "transparent";
+    ctx.strokeStyle = "#fbf8f0"; ctx.lineWidth = w * 0.06; rr(-w / 2 + w * 0.07, -h / 2 + w * 0.07, w - w * 0.14, h - w * 0.14, w * 0.06); ctx.stroke();
+    ctx.save(); rr(-w / 2 + w * 0.12, -h / 2 + w * 0.12, w - w * 0.24, h - w * 0.24, w * 0.04); ctx.clip();
+    ctx.strokeStyle = "#e9b94966"; ctx.lineWidth = Math.max(1, w * 0.03);
+    for (let k = -6; k <= 6; k++) { ctx.beginPath(); ctx.moveTo(k * w * 0.18 - h, -h); ctx.lineTo(k * w * 0.18 + h, h); ctx.moveTo(k * w * 0.18 + h, -h); ctx.lineTo(k * w * 0.18 - h, h); ctx.stroke(); }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+const CHIP_COLS = [[5000, "#1b1b1b", "#e9b949"], [1000, "#e9b949", "#7a4f00"], [500, "#7e57c2", "#fff"], [100, "#222a3a", "#fff"], [25, "#2e9d5a", "#fff"], [5, "#d64545", "#fff"], [0, "#f2efe6", "#3a6fd8"]];
+/** A little stack of chips worth `amt`, with its number beside it. */
+function drawChips(x, y, amt, r, label = true) {
+  if (amt <= 0) return;
+  const n = Math.min(6, 1 + Math.floor(Math.log2(amt / CONFIG.bigBlind + 1)));
+  for (let k = 0; k < n; k++) {
+    const [, face, edge] = CHIP_COLS.find(([v]) => amt / (n - k) >= v) || CHIP_COLS[CHIP_COLS.length - 1], cy = y - k * r * 0.32;
+    ctx.fillStyle = "#0006"; ctx.beginPath(); ctx.ellipse(x, cy + r * 0.2, r, r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = face; ctx.beginPath(); ctx.ellipse(x, cy, r, r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = edge; ctx.lineWidth = r * 0.22; ctx.setLineDash([r * 0.45, r * 0.45]); ctx.beginPath(); ctx.ellipse(x, cy, r * 0.8, r * 0.42, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  }
+  if (!label) return;
+  ctx.font = `800 ${Math.max(11, r * 1.1)}px system-ui, sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.lineWidth = 3; ctx.strokeStyle = "#000a"; ctx.strokeText(amt, x + r * 1.3, y - r * 0.2); ctx.fillStyle = "#ffe9a8"; ctx.fillText(amt, x + r * 1.3, y - r * 0.2);
+}
+function drawTable(now) {
+  const bg = ctx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H * 0.45, Math.max(W, H) * 0.8);
+  bg.addColorStop(0, "#272238"); bg.addColorStop(1, "#0c0d16"); ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  const { cx, cy, rx, ry } = L, rail = L.av * 1.15, rad = Math.min(rx, ry) * 0.95;
+  ctx.fillStyle = "#0008"; rr(cx - rx - rail + 6, cy - ry - rail + 14, (rx + rail) * 2, (ry + rail) * 2, rad + rail); ctx.fill();
+  const wood = ctx.createLinearGradient(0, cy - ry - rail, 0, cy + ry + rail);
+  wood.addColorStop(0, "#7a3f22"); wood.addColorStop(0.5, "#4f2412"); wood.addColorStop(1, "#331509");
+  ctx.fillStyle = wood; rr(cx - rx - rail, cy - ry - rail, (rx + rail) * 2, (ry + rail) * 2, rad + rail); ctx.fill();
+  ctx.strokeStyle = "#e9b94988"; ctx.lineWidth = 2; rr(cx - rx - 3, cy - ry - 3, rx * 2 + 6, ry * 2 + 6, rad + 3); ctx.stroke();
+  const felt = ctx.createRadialGradient(cx, cy - ry * 0.2, 0, cx, cy, Math.max(rx, ry) * 1.1);
+  felt.addColorStop(0, "#1f8a57"); felt.addColorStop(0.65, "#126a41"); felt.addColorStop(1, "#0a4a2c");
+  ctx.fillStyle = felt; rr(cx - rx, cy - ry, rx * 2, ry * 2, rad); ctx.fill();
+  ctx.strokeStyle = "#ffffff1c"; ctx.lineWidth = 2; rr(cx - rx * 0.86, cy - ry * 0.82, rx * 1.72, ry * 1.64, rad * 0.8); ctx.stroke();
+  ctx.fillStyle = "#ffffff1e"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = `900 ${Math.max(14, L.cw * 0.42)}px Georgia, serif`; ctx.fillText("HOLD'EM NIGHT", cx, cy + L.cw * 1.45);
+  ctx.font = `600 ${Math.max(10, L.cw * 0.2)}px system-ui, sans-serif`; ctx.fillText("PLAY CHIPS ONLY · NO REAL MONEY", cx, cy + L.cw * 1.85);
+}
+// What the table shows: deal and flip times, flying chips and cards, confetti, pop-up words.
+const view = { id: -1, t: -1, phase: "", bets: [], board: 0, dealAt: 0, flipAt: [], winAt: 0, shownAt: 0 };
+const flyers = [], parts = [], pops = [];
+function fly(kind, from, to, delay, dur, extra = {}) { flyers.push({ kind, from, to, t0: performance.now() + delay, dur, ...extra }); }
+function confetti(x, y, n) {
+  for (let k = 0; k < n; k++) { const a = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 300; parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 180, life: 1 + Math.random() * 0.8, c: ["#e9b949", "#fff3c8", "#ff8a65", "#4fc3f7", "#81c784"][k % 5], s: 3 + Math.random() * 4, r: Math.random() * 6 }); }
+}
+function pop(text, x, y, color = "#ffe9a8", size = 1) { pops.push({ text, x, y, color, size, t0: performance.now() }); }
+const betXY = (g, k) => { const [x, y] = seatXY(g, k); return k === mySeat(g) ? [x - L.cw * 1.7, y - L.av * 1.6] : toward(x, y, 0.42); };
+const potXY = () => [L.cx, L.cy - L.cw * 1.25];
+/** Compare the game with what we last drew, and start animations for what changed. */
+function syncView(g, now) {
+  if (g.id !== view.id) { // a new hand: cards fly from the dealer to every seat
+    const first = view.id < 0;
+    view.id = g.id; view.t = g.t; view.phase = g.phase; view.board = g.board.length; view.bets = g.seats.map((s) => s.bt); view.winAt = 0; view.shownAt = 0;
+    view.dealAt = first ? now - 5000 : now; view.flipAt = g.board.map(() => now - 5000);
+    if (!first) {
+      const [dx, dy] = seatXY(g, g.btn), order = g.seats.map((_, k) => (g.btn + 1 + k) % g.seats.length).filter((k) => g.seats[k].h);
+      order.forEach((k, n) => { for (let c = 0; c < 2; c++) fly("card", toward(dx, dy, 0.3), seatXY(g, k), (c * order.length + n) * 70, 320); });
+      g.seats.forEach((s, k) => { if (s.bt > 0) fly("chips", seatXY(g, k), betXY(g, k), 500, 280, { amt: s.bt }); }); // the blinds
+      sound("deal");
+    }
+    return;
+  }
+  g.seats.forEach((s, k) => { // chips into a bet
+    if (s.bt > (view.bets[k] || 0)) { fly("chips", seatXY(g, k), betXY(g, k), 0, 280, { amt: s.bt - (view.bets[k] || 0) }); sound("chip"); }
+  });
+  if (g.board.length > view.board || (g.phase !== "bet" && view.phase === "bet") || g.seats.every((s) => !s.bt) && view.bets.some((b) => b > 0)) {
+    view.bets.forEach((b, k) => { if (b > 0) fly("chips", betXY(g, k), potXY(), 0, 380, { amt: b, quiet: 1 }); }); // the street is over: bets slide into the pot
+  }
+  for (let k = view.board; k < g.board.length; k++) { view.flipAt[k] = now + 380 + (k - view.board) * 180; setTimeout(() => sound("flip"), 400 + (k - view.board) * 180); }
+  if (g.t !== view.t && g.last) { const [x, y] = seatXY(g, g.last.s), s = g.seats[g.last.s]; if (s.la) pop(s.la, x, y - L.av * 1.6, s.la === "Fold" ? "#ff9a9a" : s.la === "Check" ? "#cfe8ff" : "#ffe9a8", 0.8); if (s.la === "Check") sound("knock"); }
+  if (g.phase === "run" && view.phase !== "run") { view.shownAt = now; pop("All-in!", L.cx, L.cy - L.cw * 2.2, "#ff8a65", 1.4); }
+  if (g.phase === "show" && view.phase !== "show") { // pot to the winners
+    if (!g.res?.fold) view.shownAt = view.shownAt || now;
+    view.winAt = now + (g.res?.fold ? 300 : 1100);
+    for (const p of g.res?.p || []) for (const w of p.w) { const to = seatXY(g, w); fly("chips", potXY(), to, view.winAt - now, 600, { amt: Math.floor(p.a / p.w.length), win: 1 }); setTimeout(() => { confetti(to[0], to[1], w === mySeat(g) ? 60 : 24); sound(w === mySeat(g) ? "win" : "chip"); }, view.winAt - now + 600); }
+  }
+  view.t = g.t; view.phase = g.phase; view.board = g.board.length; view.bets = g.seats.map((s) => s.bt);
+}
+function drawSeat(g, k, now) {
+  const s = g.seats[k], [x, y] = seatXY(g, k), r = L.av, me = k === mySeat(g), turn = g.phase === "bet" && g.turn === k;
+  const winner = g.phase === "show" && now > view.winAt && (g.res?.p || []).some((p) => p.w.includes(k));
+  const out = !s.h || s.f;
+  // hole cards, toward the middle of the table
+  if (s.h && now > view.dealAt + 900) {
+    const showUp = g.shown?.[k] && view.shownAt && now > view.shownAt + 200;
+    const big = me && !s.f, cw = big ? L.cw * 1.12 : L.cw * (showUp ? 0.8 : 0.58), side = x > L.cx + 4 ? -1 : 1; // small cards sit beside the avatar, on the side facing the middle
+    const cards = me && myHole.r === g.id && myHole.cards.length === 2 ? myHole.cards : showUp ? g.shown[k] : null;
+    const bx = big ? x : x + side * (r + cw * 0.55), by = big ? y - r - cw * 0.62 : y - r * 0.35;
+    if (!s.f || me) for (let c = 0; c < 2; c++) {
+      const card = cards ? cards[c] : null, best = winner && g.res?.best?.includes(card);
+      drawCard(bx + (c - 0.5) * cw * (big ? 0.8 : 0.62), by, cw, card, { rot: (c - 0.5) * 0.16, glow: best, dim: s.f, flip: showUp && !me ? Math.min(1, (now - view.shownAt - 200) / 300) : undefined });
+    }
+  }
+  // the avatar: a timer ring while it's this seat's turn
+  ctx.save();
+  if (out && g.phase !== "show") ctx.globalAlpha = 0.45;
+  if (winner) { ctx.shadowColor = "#ffe08a"; ctx.shadowBlur = 30 + Math.sin(now / 120) * 10; }
+  ctx.fillStyle = "#151827"; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, Math.PI * 2); ctx.fill(); ctx.shadowColor = "transparent";
+  ctx.fillStyle = s.c; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#14161f"; ctx.font = `900 ${r * 0.95}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(s.b ? "🤖" : (s.n[0] || "?").toUpperCase(), x, y + 1);
+  if (turn) {
+    const left = Math.max(0, Math.min(1, (g.turnEnds - Date.now()) / CONFIG.turnMs));
+    ctx.strokeStyle = left < 0.25 ? "#ff6b6b" : "#ffe08a"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(x, y, r + 4, -Math.PI / 2, -Math.PI / 2 + left * Math.PI * 2); ctx.stroke();
+  }
+  // name plate with the stack
+  const pw = Math.max(r * 3.6, 76), ph = r * 1.25, py = y + r * 0.85;
+  ctx.fillStyle = me ? "#2b2440ee" : "#0d0f1aee"; rr(x - pw / 2, py, pw, ph, ph / 2); ctx.fill();
+  ctx.strokeStyle = turn ? "#ffe08a" : me ? "#e9b94988" : "#ffffff22"; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = "#fff"; ctx.font = `700 ${Math.max(10, r * 0.5)}px system-ui, sans-serif`;
+  ctx.fillText(me ? "You" : s.n, x, py + ph * 0.32, pw - 8);
+  ctx.fillStyle = s.st > 0 || s.al ? "#ffe08a" : "#ff9a9a"; ctx.font = `800 ${Math.max(10, r * 0.5)}px system-ui, sans-serif`;
+  ctx.fillText(s.al && g.phase !== "show" ? "ALL-IN" : s.st > 0 ? s.st.toLocaleString() : "Out of chips", x, py + ph * 0.72, pw - 8);
+  ctx.restore();
+  // the dealer button
+  if (k === g.btn) { const bx = x - (x > L.cx + 4 ? -1 : 1) * r * 1.75, by2 = y; ctx.fillStyle = "#fbf8f0"; ctx.beginPath(); ctx.arc(bx, by2, r * 0.45, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#1d2130"; ctx.font = `900 ${r * 0.5}px system-ui`; ctx.fillText("D", bx, by2 + 1); }
+  // this street's bet
+  const [bx, by] = betXY(g, k);
+  if (s.bt > 0) drawChips(bx, by, s.bt, L.av * 0.42);
+  if (winner && g.res?.h?.[k]) { ctx.font = `800 ${Math.max(11, r * 0.55)}px system-ui, sans-serif`; ctx.lineWidth = 4; ctx.strokeStyle = "#000c"; ctx.strokeText(g.res.h[k], x, py + ph + r * 0.5); ctx.fillStyle = "#ffe08a"; ctx.fillText(g.res.h[k], x, py + ph + r * 0.5); }
+}
+function drawBoard(g, now) {
+  const cw = L.cw, gap = cw * 1.1, y = L.cy;
+  for (let k = 0; k < 5; k++) {
+    const x = L.cx + (k - 2) * gap;
+    ctx.strokeStyle = "#ffffff22"; ctx.lineWidth = 1.5; rr(x - cw / 2, y - cw * 0.7, cw, cw * 1.4, cw * 0.1); ctx.stroke();
+    const card = g.board[k];
+    if (!card || now < view.flipAt[k] - 300) continue;
+    const f = Math.min(1, (now - view.flipAt[k]) / 320), lift = (1 - ease(f)) * cw * 0.3;
+    drawCard(x, y - lift, cw, card, { flip: f, glow: g.phase === "show" && !g.res?.fold && now > view.winAt && g.res?.best?.includes(card), dim: g.phase === "show" && !g.res?.fold && now > view.winAt && !g.res?.best?.includes(card) });
+  }
+  const pot = g.seats.reduce((a, s) => a + s.tt - s.bt, 0), [px, py] = potXY();
+  if (pot > 0 && !(g.phase === "show" && now > view.winAt)) { drawChips(px - L.av * 0.6, py, pot, L.av * 0.5, false); ctx.font = `800 ${Math.max(13, cw * 0.3)}px system-ui, sans-serif`; ctx.textAlign = "left"; ctx.fillStyle = "#ffe9a8"; ctx.fillText("Pot " + pot.toLocaleString(), px + L.av * 0.2, py - 2); }
+  if (g.phase === "show" && now > view.winAt) { // the result, written on the felt
+    const p = g.res?.p || [], main = p[0], who = (i) => (i === mySeat(g) ? "You" : g.seats[i].n);
+    const text = !main ? "" : main.w.length > 1 ? `Split pot · ${main.w.map(who).join(" & ")}` : `${who(main.w[0])} win${main.w[0] === mySeat(g) ? "" : "s"} ${main.a.toLocaleString()}${g.res.fold ? "" : " · " + (g.res.h?.[main.w[0]] || "")}`;
+    const k = ease((now - view.winAt) / 400);
+    ctx.save(); ctx.globalAlpha = k; ctx.font = `900 ${Math.max(16, cw * 0.4)}px system-ui, sans-serif`; ctx.textAlign = "center";
+    ctx.lineWidth = 5; ctx.strokeStyle = "#000c"; ctx.strokeText(text, L.cx, py - cw * 0.1, L.rx * 1.8); ctx.fillStyle = "#ffe08a"; ctx.fillText(text, L.cx, py - cw * 0.1, L.rx * 1.8);
+    if (p.length > 1) { ctx.font = `700 ${Math.max(11, cw * 0.24)}px system-ui, sans-serif`; ctx.fillStyle = "#fff"; ctx.fillText(p.slice(1).map((q) => `side pot ${q.a} → ${q.w.map(who).join(" & ")}`).join(" · "), L.cx, py + cw * 0.28, L.rx * 1.8); }
+    ctx.restore();
+  }
+}
+function drawFx(dt, now) {
+  for (let k = flyers.length - 1; k >= 0; k--) {
+    const f = flyers[k], t = (now - f.t0) / f.dur;
+    if (t >= 1) { flyers.splice(k, 1); continue; }
+    if (t < 0) continue;
+    const e = ease(t), x = f.from[0] + (f.to[0] - f.from[0]) * e, y = f.from[1] + (f.to[1] - f.from[1]) * e - Math.sin(e * Math.PI) * L.cw * 0.5;
+    if (f.kind === "card") drawCard(x, y, L.cw * 0.5, null, { rot: e * 6 });
+    else drawChips(x, y, f.amt, L.av * 0.42, false);
+  }
+  for (let k = parts.length - 1; k >= 0; k--) {
+    const p = parts[k]; p.life -= dt; p.vy += 500 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.r += dt * 8;
+    if (p.life <= 0) { parts.splice(k, 1); continue; }
+    ctx.save(); ctx.globalAlpha = Math.min(1, p.life * 2); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); ctx.restore();
+  }
+  for (let k = pops.length - 1; k >= 0; k--) {
+    const p = pops[k], t = (now - p.t0) / 1300;
+    if (t >= 1) { pops.splice(k, 1); continue; }
+    ctx.save(); ctx.globalAlpha = t < 0.15 ? t / 0.15 : 1 - Math.max(0, t - 0.6) / 0.4;
+    ctx.font = `900 ${Math.max(13, L.av * 0.75 * p.size)}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.lineWidth = 4; ctx.strokeStyle = "#000b"; ctx.strokeText(p.text, p.x, p.y - t * 26); ctx.fillStyle = p.color; ctx.fillText(p.text, p.x, p.y - t * 26);
+    ctx.restore();
+  }
+}
+function draw(g, dt, now) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawTable(now);
+  if (g) { drawBoard(g, now); g.seats.forEach((_, k) => drawSeat(g, k, now)); }
+  drawFx(dt, now);
+}
+let actx = null; // sounds start after the first tap (browsers require it)
+addEventListener("pointerdown", () => { if (!actx) try { actx = new AudioContext(); } catch {} });
+function sound(kind) {
+  if (!actx || ATTRACT) return;
+  const t = actx.currentTime, o = actx.createOscillator(), gn = actx.createGain();
+  const [type, f0, f1, len, vol] = { chip: ["square", 1800, 900, 0.04, 0.05], deal: ["triangle", 700, 300, 0.08, 0.08], flip: ["triangle", 500, 900, 0.07, 0.08],
+    knock: ["sine", 220, 120, 0.08, 0.15], win: ["triangle", 520, 1040, 0.4, 0.15], turn: ["sine", 660, 880, 0.15, 0.1] }[kind] || ["sine", 440, 440, 0.1, 0.1];
+  o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + len);
+  gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.001, t + len + 0.1);
+  o.connect(gn).connect(actx.destination); o.start(t); o.stop(t + len + 0.12);
+}
+
+// ── HUD & RESULTS ───────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const slider = { min: 0, max: 0, val: 0, key: "" };
+/** The raise slider: from the minimum raise to all-in, snapped to the big blind. */
+function setRaise(v) {
+  slider.val = Math.max(slider.min, Math.min(slider.max, Math.round(v / CONFIG.bigBlind) * CONFIG.bigBlind));
+  if (v >= slider.max) slider.val = slider.max;
+  const k = slider.max > slider.min ? (slider.val - slider.min) / (slider.max - slider.min) : 1;
+  $("thumb").style.left = k * 100 + "%"; $("fill").style.width = k * 100 + "%";
+  const g = game();
+  $("raiseBtn").textContent = slider.val >= slider.max ? `All-in ${slider.max}` : `${g && g.hi > 0 ? "Raise to" : "Bet"} ${slider.val}`;
+}
+function trackAt(e) { const r = $("track").getBoundingClientRect(); setRaise(slider.min + Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (slider.max - slider.min)); }
+$("track").addEventListener("pointerdown", (e) => { e.preventDefault(); $("track").setPointerCapture(e.pointerId); trackAt(e); });
+$("track").addEventListener("pointermove", (e) => { if ($("track").hasPointerCapture(e.pointerId)) trackAt(e); });
+for (const b of document.querySelectorAll("#raise .q")) b.onclick = () => {
+  const g = game(); if (!g) return;
+  const s = g.seats[mySeat(g)], pot = potOf(g), owe = g.hi - s.bt;
+  setRaise({ min: slider.min, half: g.hi + (pot + owe) / 2, pot: g.hi + pot + owe, all: slider.max }[b.dataset.q]);
+};
+$("fold").onclick = () => { const g = game(); if (g && myTurn(g)) act("act", { a: "fold" }); };
+$("call").onclick = () => { const g = game(); if (g && myTurn(g)) act("act", { a: g.hi > g.seats[mySeat(g)].bt ? "call" : "check" }); };
+$("raiseBtn").onclick = () => { const g = game(); if (g && myTurn(g)) act("act", { a: "raise", to: slider.val }); };
+addEventListener("keydown", (e) => {
+  const g = game(); if (!g || !myTurn(g)) return;
+  if (e.key === "f") $("fold").click(); else if (e.key === "c" || e.key === " ") $("call").click(); else if (e.key === "r" || e.key === "Enter") $("raiseBtn").click();
+  else if (e.key === "ArrowRight" || e.key === "ArrowUp") setRaise(slider.val + CONFIG.bigBlind); else if (e.key === "ArrowLeft" || e.key === "ArrowDown") setRaise(slider.val - CONFIG.bigBlind);
+});
+let lastTurnKey = "";
+function actionBar(g) {
+  const mine = myTurn(g) && !ATTRACT;
+  $("bar").hidden = !mine;
+  if (!mine) return;
+  const s = g.seats[mySeat(g)], owe = Math.min(s.st, g.hi - s.bt), most = s.bt + s.st;
+  $("call").textContent = owe > 0 ? (owe >= s.st ? `All-in ${owe}` : `Call ${owe}`) : "Check";
+  const canRaise = most > g.hi && g.seats.some((o, k) => k !== mySeat(g) && canBet(o)) && owe < s.st;
+  $("raise").hidden = !canRaise; $("raiseBtn").classList.toggle("hide", !canRaise);
+  const key = g.id + ":" + g.t;
+  if (key !== lastTurnKey) { lastTurnKey = key; slider.min = Math.min(most, Math.max(g.hi + g.minR, CONFIG.bigBlind)); slider.max = most; setRaise(slider.min); sound("turn"); }
+}
+let dropped = false, board = null, best = 0, overMode = "", closedFor = "", submittedFor = -1;
+function hud(g, now) {
+  const me = mySeat(g), s = g.seats[me], turnSeat = g.seats[g.turn];
+  if (ATTRACT) { for (const id of ["top", "status", "net"]) $(id).classList.add("hide"); return; }
+  $("info").textContent = `Hand #${g.id} · Blinds ${CONFIG.smallBlind}/${CONFIG.bigBlind}`;
+  let text = "";
+  if (me < 0) text = "You're watching · you'll be dealt in next hand";
+  else if (g.phase === "bet" && now < view.dealAt + 900) text = "Dealing…";
+  else if (myTurn(g)) { const h = myHole.cards.length === 2 ? evalHand([...myHole.cards, ...g.board]).name : ""; text = "Your turn" + (h ? " · you have " + h : ""); }
+  else if (g.phase === "bet" && turnSeat) text = `${turnSeat.n}${turnSeat.b ? " is thinking…" : "'s turn"}` + (s && s.h && !s.f && myHole.cards.length === 2 ? " · you have " + evalHand([...myHole.cards, ...g.board]).name : "");
+  else if (g.phase === "run") text = "All-in · running out the board";
+  else if (g.phase === "show") text = "Next hand in " + Math.max(0, Math.ceil((g.endsAt - Date.now()) / 1000)) + "s";
+  if (now < hintUntil && me >= 0 && g.phase === "bet") text = "Best 5-card hand wins: your 2 cards + the board.";
+  $("status").textContent = text;
+  $("status").style.opacity = $("bar").hidden ? 1 : 0.9;
+  const n = livePlayers().length;
+  $("net").textContent = net.offline ? "Offline: playing with bots" : dropped ? "Reconnecting…" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the table" : ""}`;
+  // the leaderboard: submit when I win a pot
+  if (g.phase === "show" && submittedFor !== g.id && now > view.winAt) {
+    submittedFor = g.id;
+    const won = (g.res?.p || []).filter((p) => p.w.includes(me)).reduce((a, p) => a + Math.floor(p.a / p.w.length), 0);
+    if (won > best) { best = won; if (board) board.submit(won).catch(() => null); if (view.id >= 0 && won > CONFIG.bigBlind * 10) pop("New best pot!", L.cx, L.cy + L.cw * 1.1, "#ffe08a", 1.1); }
+  }
+  // the bust card: out of chips
+  const bust = s && s.st <= 0 && (g.phase === "show" ? now > view.winAt + 600 : !s.h);
+  if (!bust) closedFor = "";
+  if (bust && !closedFor && overMode !== "bust") openCard("bust");
+  else if (overMode === "bust" && !bust) closeCard();
+  $("buyBtn").classList.toggle("hide", !bust || overMode === "bust");
+}
+function openCard(mode) {
+  overMode = mode; $("over").hidden = false;
+  const bust = mode === "bust", ranks = mode === "ranks";
+  $("overTitle").textContent = bust ? "Out of chips" : ranks ? "Winning hands" : "Biggest pots won";
+  $("overSub").textContent = bust ? `They're play chips, so buy back in for ${CONFIG.buyIn.toLocaleString()} and keep going.` : ranks ? "Best at the top. Five cards from your two and the board." : best ? `Your best tonight: ${best.toLocaleString()}` : "Win a pot to get on the board.";
+  $("overBody").innerHTML = ranks ? "<ol class='ranks'>" + ["Royal flush <i>A K Q J 10, one suit</i>", "Straight flush <i>five in a row, one suit</i>", "Four of a kind", "Full house <i>three + a pair</i>", "Flush <i>five of one suit</i>", "Straight <i>five in a row</i>", "Three of a kind", "Two pair", "Pair", "High card"].map((x) => `<li>${x}</li>`).join("") + "</ol>" : "";
+  $("again").classList.toggle("hide", !bust);
+  $("board").classList.toggle("hide", ranks); $("boardTitle").classList.toggle("hide", ranks);
+  if (ranks) return;
+  const list = $("board");
+  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
+  list.innerHTML = "<li>Loading…</li>";
+  board.top(10).then(({ entries }) => {
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${Number(e.score).toLocaleString()}</span></li>`).join("") : "<li>No pots yet. Be the first.</li>";
+  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+}
+function closeCard() { if (overMode === "bust") closedFor = "bust"; overMode = ""; $("over").hidden = true; }
+$("again").onclick = () => { act("rebuy", {}); closeCard(); };
+$("buyBtn").onclick = () => act("rebuy", {});
+$("close").onclick = closeCard;
+$("lbBtn").onclick = () => openCard("board");
+$("rankBtn").onclick = () => openCard("ranks");
+document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+
+// ── MAIN LOOP ───────────────────────────────────────────────────────────────────────
+let myName = "", myColor = COLORS[0], lastHb = 0, last = performance.now(), lastHud = 0;
+try { myName = localStorage.getItem("mpa-name") || ""; } catch {}
+const pickOne = (list) => list[Math.floor(Math.random() * list.length)];
+if (!myName) { myName = pickOne(NAME_A) + " " + pickOne(NAME_B); try { localStorage.setItem("mpa-name", myName); } catch {} }
+if (ATTRACT) { for (const id of ["top", "status", "net"]) $(id).classList.add("hide"); Object.assign(CONFIG, { seats: 6, botMs: 330, dealMs: 650, runMs: 650, showMs: 2200, foldWinMs: 1200, botBluff: 0.22, botTrials: 120 }); BOT_STYLE.forEach((b) => { b.loose = Math.min(1, b.loose + 0.4); b.aggr = Math.min(1, b.aggr + 0.3); }); $("net").textContent = ""; }
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (performance.now() - lastTick > 1000) { hostHold = performance.now() + 700; stopHosting(); } // the tab was frozen or in the background: someone else may have hosted meanwhile, so let its state arrive, then adopt it
+  lastTick = performance.now(); // not the rAF time: after a long freeze Chrome can stamp the first frame from before it ended
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // never negative: the first frame can be stamped before `last`
+  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); fixColor(); }
+  if (isHost()) hostTick(now); else stopHosting();
+  const g = game();
+  if (g) {
+    readMyHole(g);
+    resendHole(g, now);
+    syncView(g, now);
+    actionBar(g);
+    if (now - lastHud > 120) { lastHud = now; hud(g, now); }
+  }
+  draw(g, dt, now);
+}
+
+/** Two players picked the same color at once (the joiner's first state can be empty): the later sessionId picks again.
+ *  The bots' colors at the table count as taken too. */
+function fixColor() {
+  const others = Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId), botColors = (game()?.seats || []).filter((s) => s.b).map((s) => s.c);
+  if (!others.some(([id, p]) => p.c === myColor && id < net.sessionId) && !botColors.includes(myColor)) return;
+  const taken = new Set([...others.map(([, p]) => p.c), ...botColors]);
+  myColor = COLORS.find((c) => !taken.has(c)) || myColor; net.me.set("c", myColor);
+}
+
+(async function start() {
+  net = await connect();
+  net.onState((st) => { S = st; });
+  for (const type of ["act", "rebuy"]) net.on(type, (data, from) => { if (isHost() && data) host.inbox.push({ type, from, data }); });
+  net.on("myhole", (d, from) => { // a player re-sending its cards to me, the new host
+    const g = game(), i = g && d ? seatOf(g, from) : -1;
+    if (i < 0 || d.to !== net.sessionId || d.r !== g.id || host.ready) return;
+    Seal.open(S.entities.players[from]?.pk, d.box).then((cards) => { if (Array.isArray(cards) && cards.length === 2) host.known.set(i, cards); });
+  });
+  net.onDisconnect(() => { dropped = true; $("net").textContent = "Reconnecting…"; });
+  net.onReconnect(() => { dropped = false; });
+  if (!net.offline && typeof MP !== "undefined") board = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl }).leaderboard(CONFIG.board);
+  const taken = new Set([...Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c), ...(game()?.seats || []).filter((s) => s.b).map((s) => s.c)]);
+  myColor = COLORS.find((c) => !taken.has(c)) || pickOne(COLORS);
+  const pk = await Seal.init().catch(() => "");
+  net.me.set({ n: myName, c: myColor, pk, hb: Date.now() });
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

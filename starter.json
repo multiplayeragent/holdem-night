@@ -1,0 +1,21 @@
+{
+  "name": "Hold'em Night",
+  "genre": "board",
+  "dim": "2D",
+  "mode": "Turn-based",
+  "players": "2–8",
+  "hook": "Texas hold'em with friends. Play chips only.",
+  "how": "Two cards each, five shared on the board: bet, call, raise or fold, and the best five-card hand takes the pot (side pots when someone is all-in). Chips are play chips only, with no real money and nothing to buy; run out and you just buy back in.",
+  "controls": "Click or tap Fold, Check/Call or Raise; drag the slider to size a raise (keys F, C, R)",
+  "uses": [
+    ["Hidden info", "Your two cards are sealed so only you can read them (the host deals, so it can too)."],
+    ["Host-run rules", "The host's browser shuffles, deals, runs the betting and pays the pots; if it leaves, the next player takes over."],
+    ["Bots", "Bots fill empty seats, play by hand strength and sometimes bluff; a friend who joins takes a bot's seat next hand."],
+    ["Leaderboard", "The biggest pot each player has won."]
+  ],
+  "ideas": [
+    "Make the blinds go up every 10 hands",
+    "Add a chat bubble so players can trash-talk",
+    "Turn it into a space casino with neon chips"
+  ]
+}
