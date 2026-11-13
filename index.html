@@ -32,6 +32,7 @@
   .card h3 { margin: 8px 0 4px; font-size: 13px; color: #e9b949; text-align: left; }
   .card ol { text-align: left; margin: 0 0 12px; padding-left: 24px; font-size: 14px; min-height: 30px; }
   .card li span { float: right; }
+  .card li.note { list-style: none; margin-left: -24px; opacity: .7; }
   .card button { width: 100%; min-height: 48px; border-radius: 12px; border: 0; font: 800 16px system-ui, sans-serif; cursor: pointer; margin-top: 8px; }
   #again { background: #e9b949; color: #231400; } #close { background: #ffffff1a; color: #fff; }
   .small { font-size: 12px; opacity: .6; margin-top: 10px; }
@@ -53,7 +54,7 @@
 <div id="over" hidden><div class="card">
   <h2 id="overTitle"></h2><p id="overSub"></p>
   <div id="overBody"></div>
-  <h3 id="boardTitle">Biggest pots won</h3><ol id="board"><li>Loading…</li></ol>
+  <h3 id="boardTitle">Biggest pots won</h3><ol id="board"><li class="note">Loading…</li></ol>
   <button id="again">Buy back in</button><button id="close">Back to the table</button>
   <p class="small">Play chips only. No real money, nothing to buy.</p>
 </div></div>
@@ -369,7 +370,7 @@ function showdown(g) {
     const share = Math.floor(p.a / w.length);
     w.forEach((i) => { g.seats[i].st += share; });
     g.seats[nextSeat(g, g.btn, (s, i) => w.includes(i))].st += p.a - share * w.length;
-    return { a: p.a, w };
+    return p.e.length === 1 ? { a: p.a, w, back: 1 } : { a: p.a, w }; // back: a bet nobody could call, handed back (not "won")
   });
   const top = paid[0].w[0];
   return Object.assign(g, { phase: "show", turn: -1, shown: Object.fromEntries(alive.map((i) => [i, host.holes[i]])),
@@ -405,6 +406,8 @@ function botAction(g, i) {
     return { a: "check" };
   }
   const price = owe / (pot + owe); // the share of the final pot this call costs
+  const raisable = g.seats.some((o, k) => k !== i && canBet(o)); // somebody could still answer a raise
+  if (!raisable) return eq > price * (1.1 - style.loose * 0.4) ? { a: "call" } : { a: "fold" };
   if (rel > 2.1 - style.aggr * 0.5 && r < 0.4 + style.aggr * 0.4) return { a: "raise", to: shortStack || eq > 0.8 ? s.bt + s.st : raiseTo(0.6 + r * 0.6) };
   const cheap = g.street === 0 && owe <= BB * (2 + style.loose * 3);
   if (eq > price * (1.1 - style.loose * 0.4) || (cheap && rel > 0.85 - style.loose * 0.45)) return { a: "call" };
@@ -659,7 +662,12 @@ function confetti(x, y, n) {
   for (let k = 0; k < n; k++) { const a = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 300; parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 180, life: 1 + Math.random() * 0.8, c: ["#e9b949", "#fff3c8", "#ff8a65", "#4fc3f7", "#81c784"][k % 5], s: 3 + Math.random() * 4, r: Math.random() * 6 }); }
 }
 function pop(text, x, y, color = "#ffe9a8", size = 1) { pops.push({ text, x, y, color, size, t0: performance.now() }); }
-const betXY = (g, k) => { const [x, y] = seatXY(g, k); return k === mySeat(g) ? [x - L.cw * 1.7, y - L.av * 1.6] : toward(x, y, 0.42); };
+const betXY = (g, k) => {
+  const [x, y] = seatXY(g, k);
+  if (k === mySeat(g)) return [x - L.cw * 1.7, y - L.av * 1.6];
+  const [bx, by] = toward(x, y, 0.42);
+  return Math.abs(bx - L.cx) < L.cw * 1.5 && Math.abs(by - potXY()[1]) < L.cw * 0.7 ? [bx + L.cw * 1.6, by] : [bx, by]; // would sit on the pot: move it beside the pot
+};
 const potXY = () => [L.cx, L.cy - L.cw * 1.25];
 /** Compare the game with what we last drew, and start animations for what changed. */
 function syncView(g, now) {
@@ -682,12 +690,12 @@ function syncView(g, now) {
     view.bets.forEach((b, k) => { if (b > 0) fly("chips", betXY(g, k), potXY(), 0, 380, { amt: b, quiet: 1 }); }); // the street is over: bets slide into the pot
   }
   for (let k = view.board; k < g.board.length; k++) { view.flipAt[k] = now + 380 + (k - view.board) * 180; setTimeout(() => sound("flip"), 400 + (k - view.board) * 180); }
-  if (g.t !== view.t && g.last) { const [x, y] = seatXY(g, g.last.s), s = g.seats[g.last.s]; if (s.la) pop(s.la, x, y - L.av * 1.6, s.la === "Fold" ? "#ff9a9a" : s.la === "Check" ? "#cfe8ff" : "#ffe9a8", 0.8); if (s.la === "Check") sound("knock"); }
+  if (g.t !== view.t && g.last) { const [sx, sy] = seatXY(g, g.last.s), s = g.seats[g.last.s], mine = g.last.s === mySeat(g), x = mine ? sx - L.cw * 1.7 : sx, y = mine ? sy - L.av * 1.4 : sy; if (s.la) pop(s.la, x, y - L.av * 1.6, s.la === "Fold" ? "#ff9a9a" : s.la === "Check" ? "#cfe8ff" : "#ffe9a8", 0.8); if (s.la === "Check") sound("knock"); }
   if (g.phase === "run" && view.phase !== "run") { view.shownAt = now; pop("All-in!", L.cx, L.cy - L.cw * 2.2, "#ff8a65", 1.4); }
   if (g.phase === "show" && view.phase !== "show") { // pot to the winners
     if (!g.res?.fold) view.shownAt = view.shownAt || now;
     view.winAt = now + (g.res?.fold ? 300 : 1100);
-    for (const p of g.res?.p || []) for (const w of p.w) { const to = seatXY(g, w); fly("chips", potXY(), to, view.winAt - now, 600, { amt: Math.floor(p.a / p.w.length), win: 1 }); setTimeout(() => { confetti(to[0], to[1], w === mySeat(g) ? 60 : 24); sound(w === mySeat(g) ? "win" : "chip"); }, view.winAt - now + 600); }
+    for (const p of g.res?.p || []) for (const w of p.w) { const to = seatXY(g, w); fly("chips", potXY(), to, view.winAt - now, 600, { amt: Math.floor(p.a / p.w.length), win: 1 }); if (!p.back) setTimeout(() => { confetti(to[0], to[1], w === mySeat(g) ? 60 : 24); sound(w === mySeat(g) ? "win" : "chip"); }, view.winAt - now + 600); }
   }
   view.t = g.t; view.phase = g.phase; view.board = g.board.length; view.bets = g.seats.map((s) => s.bt);
 }
@@ -752,7 +760,8 @@ function drawBoard(g, now) {
     const k = ease((now - view.winAt) / 400);
     ctx.save(); ctx.globalAlpha = k; ctx.font = `900 ${Math.max(16, cw * 0.4)}px system-ui, sans-serif`; ctx.textAlign = "center";
     ctx.lineWidth = 5; ctx.strokeStyle = "#000c"; ctx.strokeText(text, L.cx, py - cw * 0.1, L.rx * 1.8); ctx.fillStyle = "#ffe08a"; ctx.fillText(text, L.cx, py - cw * 0.1, L.rx * 1.8);
-    if (p.length > 1) { ctx.font = `700 ${Math.max(11, cw * 0.24)}px system-ui, sans-serif`; ctx.fillStyle = "#fff"; ctx.fillText(p.slice(1).map((q) => `side pot ${q.a} → ${q.w.map(who).join(" & ")}`).join(" · "), L.cx, py + cw * 0.28, L.rx * 1.8); }
+    const side = p.slice(1).filter((q) => !q.back);
+    if (side.length) { ctx.font = `700 ${Math.max(11, cw * 0.24)}px system-ui, sans-serif`; ctx.fillStyle = "#fff"; ctx.fillText(side.map((q) => `side pot ${q.a} → ${q.w.map(who).join(" & ")}`).join(" · "), L.cx, py + cw * 0.28, L.rx * 1.8); }
     ctx.restore();
   }
 }
@@ -822,9 +831,11 @@ $("fold").onclick = () => { const g = game(); if (g && myTurn(g)) act("act", { a
 $("call").onclick = () => { const g = game(); if (g && myTurn(g)) act("act", { a: g.hi > g.seats[mySeat(g)].bt ? "call" : "check" }); };
 $("raiseBtn").onclick = () => { const g = game(); if (g && myTurn(g)) act("act", { a: "raise", to: slider.val }); };
 addEventListener("keydown", (e) => {
-  const g = game(); if (!g || !myTurn(g)) return;
-  if (e.key === "f") $("fold").click(); else if (e.key === "c" || e.key === " ") $("call").click(); else if (e.key === "r" || e.key === "Enter") $("raiseBtn").click();
-  else if (e.key === "ArrowRight" || e.key === "ArrowUp") setRaise(slider.val + CONFIG.bigBlind); else if (e.key === "ArrowLeft" || e.key === "ArrowDown") setRaise(slider.val - CONFIG.bigBlind);
+  const g = game(), k = e.key.length === 1 ? e.key.toLowerCase() : e.key; // lowercase: Shift or Caps Lock still works
+  if ([" ", "Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(k) && overMode === "") e.preventDefault(); // no focused-button double press
+  if (!g || !myTurn(g) || overMode || e.repeat) return;
+  if (k === "f") $("fold").click(); else if (k === "c" || k === " ") $("call").click(); else if ((k === "r" || k === "Enter") && !$("raiseBtn").classList.contains("hide")) $("raiseBtn").click();
+  else if (k === "ArrowRight" || k === "ArrowUp") setRaise(slider.val + CONFIG.bigBlind); else if (k === "ArrowLeft" || k === "ArrowDown") setRaise(slider.val - CONFIG.bigBlind);
 });
 let lastTurnKey = "";
 function actionBar(g) {
@@ -858,7 +869,7 @@ function hud(g, now) {
   // the leaderboard: submit when I win a pot
   if (g.phase === "show" && submittedFor !== g.id && now > view.winAt) {
     submittedFor = g.id;
-    const won = (g.res?.p || []).filter((p) => p.w.includes(me)).reduce((a, p) => a + Math.floor(p.a / p.w.length), 0);
+    const won = (g.res?.p || []).filter((p) => p.w.includes(me) && !p.back).reduce((a, p) => a + Math.floor(p.a / p.w.length), 0);
     if (won > best) { best = won; if (board) board.submit(won).catch(() => null); if (view.id >= 0 && won > CONFIG.bigBlind * 10) pop("New best pot!", L.cx, L.cy + L.cw * 1.1, "#ffe08a", 1.1); }
   }
   // the bust card: out of chips
@@ -878,11 +889,11 @@ function openCard(mode) {
   $("board").classList.toggle("hide", ranks); $("boardTitle").classList.toggle("hide", ranks);
   if (ranks) return;
   const list = $("board");
-  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
-  list.innerHTML = "<li>Loading…</li>";
+  if (!board) { list.innerHTML = "<li class='note'>Leaderboards need a connection.</li>"; return; }
+  list.innerHTML = "<li class='note'>Loading…</li>";
   board.top(10).then(({ entries }) => {
-    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${Number(e.score).toLocaleString()}</span></li>`).join("") : "<li>No pots yet. Be the first.</li>";
-  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${Number(e.score).toLocaleString()}</span></li>`).join("") : "<li class='note'>No pots yet. Be the first.</li>";
+  }).catch(() => { list.innerHTML = "<li class='note'>Couldn't load the leaderboard.</li>"; });
 }
 function closeCard() { if (overMode === "bust") closedFor = "bust"; overMode = ""; $("over").hidden = true; }
 $("again").onclick = () => { act("rebuy", {}); closeCard(); };
