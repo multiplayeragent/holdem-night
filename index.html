@@ -820,7 +820,8 @@ function setRaise(v) {
   $("raiseBtn").textContent = slider.val >= slider.max ? `All-in ${slider.max}` : `${g && g.hi > 0 ? "Raise to" : "Bet"} ${slider.val}`;
 }
 function trackAt(e) { const r = $("track").getBoundingClientRect(); setRaise(slider.min + Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (slider.max - slider.min)); }
-$("track").addEventListener("pointerdown", (e) => { e.preventDefault(); $("track").setPointerCapture(e.pointerId); trackAt(e); });
+$("track").addEventListener("pointerdown", (e) => { e.preventDefault(); if (e.button !== 0) return; $("track").setPointerCapture(e.pointerId); trackAt(e); });
+$("track").addEventListener("contextmenu", (e) => e.preventDefault()); // right-click on the raise slider doesn't open the browser menu
 $("track").addEventListener("pointermove", (e) => { if ($("track").hasPointerCapture(e.pointerId)) trackAt(e); });
 for (const b of document.querySelectorAll("#raise .q")) b.onclick = () => {
   const g = game(); if (!g) return;
